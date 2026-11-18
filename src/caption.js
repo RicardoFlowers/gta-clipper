@@ -43,4 +43,41 @@ function telegramCaption(clip, login, hashtags) {
   return `${head}\n${link}\n\n👇 toque pra copiar a legenda\n<code>${escapeHtml(body)}</code>`;
 }
 
-module.exports = { escapeHtml, cleanTitle, postCaption, telegramCaption, formatViews };
+// ---------- campanhas ----------
+
+// Legenda pra postar numa campanha: o nome do streamer tem que aparecer (regra comum),
+// hashtags obrigatórias e o aviso de publicidade (#ad / #publi).
+function campaignPostCaption(clip, login, camp) {
+  let title = cleanTitle(clip.title);
+  if (camp.mention && !title.toLowerCase().includes(camp.mention.toLowerCase())) title = `${camp.mention}: ${title}`;
+  const site = camp.source === 'kick' ? 'kick.com' : 'twitch.tv';
+  const credit = camp.lang === 'en' ? `📺 ${site}/${login}` : `🎮 Créditos: ${site}/${login}`;
+  const tags = [camp.hashtags, camp.disclosure].filter(Boolean).join(' ');
+  return [title, '', credit, '', tags].join('\n').trim();
+}
+
+function campaignTelegramCaption(clip, login, camp) {
+  const lines = [
+    `💰 <b>${escapeHtml(camp.name)}</b>`,
+    `🎬 ${escapeHtml(clip.broadcaster_name)} · ${formatViews(clip.view_count)} views · ${Math.round(clip.duration || 0)}s`,
+  ];
+  if (camp.postWhere) lines.push(`📲 Postar em: ${escapeHtml(camp.postWhere)}`);
+  const links = [];
+  if (camp.submitUrl) links.push(`<a href="${escapeHtml(camp.submitUrl)}">enviar o link</a>`);
+  if (camp.rulesUrl && camp.rulesUrl !== camp.submitUrl) links.push(`<a href="${escapeHtml(camp.rulesUrl)}">regras</a>`);
+  links.push(`<a href="${escapeHtml(clip.url)}">clipe original</a>`);
+  lines.push(`⏱ Depois de postar, envie o link em até 30 min · ${links.join(' · ')}`);
+  let body = campaignPostCaption(clip, login, camp);
+  if (body.length > 600) body = `${body.slice(0, 597)}...`;
+  return `${lines.join('\n')}\n\n👇 toque pra copiar a legenda\n<code>${escapeHtml(body)}</code>`;
+}
+
+module.exports = {
+  escapeHtml,
+  cleanTitle,
+  postCaption,
+  telegramCaption,
+  formatViews,
+  campaignPostCaption,
+  campaignTelegramCaption,
+};

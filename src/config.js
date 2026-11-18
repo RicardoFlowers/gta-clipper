@@ -57,6 +57,7 @@ function readConfig(env = process.env) {
     telegramToken: str(env.TELEGRAM_BOT_TOKEN, ''),
     telegramChatId: str(env.TELEGRAM_CHAT_ID, ''),
 
+    campaignsFile: path.resolve(ROOT, str(env.CAMPAIGNS_FILE, 'campaigns.json')),
     stateFile: path.resolve(ROOT, str(env.STATE_FILE, 'state.json')),
     outDir: path.resolve(ROOT, str(env.OUTPUT_DIR, 'output')),
     tmpDir: path.resolve(ROOT, str(env.TMP_DIR, 'tmp')),

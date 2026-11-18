@@ -103,3 +103,27 @@ test('baixa com yt-dlp e converte (servidor local)', { skip: (!FFMPEG || !YTDLP)
   assert.equal(probe(raw).width, 1280);
   await assert.rejects(download(`${srv.url}/nao-existe.mp4`, path.join(dir, 'x.mp4')), /yt-dlp/);
 });
+
+test('aviso de publicidade (#ad) no começo do vídeo não quebra o filtro, nem em caminho esquisito', { skip: (!FFMPEG || !FONT) && 'sem ffmpeg/fonte' }, async () => {
+  const weird = path.join(dir, "ad's [x], y; z:w");
+  fs.mkdirSync(weird, { recursive: true });
+  // fundo parado (cor sólida): assim só o aviso muda o topo do quadro
+  const input = path.join(weird, 'in.mp4');
+  require('child_process').execFileSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=0x3366aa:s=1280x720:r=30:d=4',
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', input]);
+  const out = path.join(weird, 'out.mp4');
+  const r = await toVertical(input, out, { creditText: 'CLIX', topText: '#ad', fontFile: FONT });
+  assert.equal(r.fontUsed, true);
+  const p = probe(out);
+  assert.equal(p.height, 1920);
+  assert.ok(Math.abs(p.duration - 4) < 0.3);
+  // o aviso aparece só nos primeiros segundos: o topo do quadro muda entre t=1s e t=3.5s
+  const { execFileSync } = require('child_process');
+  const crop = (t) => execFileSync('ffmpeg', ['-v', 'error', '-ss', String(t), '-i', out, '-frames:v', '1', '-vf', 'crop=1080:120:0:200,scale=54:6,format=gray', '-f', 'rawvideo', '-']);
+  const meanDiff = (a, b) => a.reduce((acc, v, i) => acc + Math.abs(v - b[i]), 0) / a.length;
+  const comAviso = crop(1);
+  const semAviso1 = crop(3.4);
+  const semAviso2 = crop(3.9);
+  assert.ok(meanDiff(comAviso, semAviso1) > 1, `o aviso deveria aparecer no começo (diferença ${meanDiff(comAviso, semAviso1)})`);
+  assert.ok(meanDiff(semAviso1, semAviso2) < 1, `depois de 3s o topo fica parado (diferença ${meanDiff(semAviso1, semAviso2)})`);
+});

@@ -59,3 +59,27 @@ test('falhas são contadas e um sucesso depois apaga a falha', () => {
   assert.equal(s.clips.c.ok, true);
   assert.equal(s.clips.c.fails, undefined);
 });
+
+test('limite por hora: conta só a fila certa e só a última hora', () => {
+  const { logSent, sentLastHour } = require('../../src/state');
+  const s = emptyState();
+  logSent(s, 'clix', NOW - 70 * 60_000);
+  logSent(s, 'clix', NOW - 20 * 60_000);
+  logSent(s, 'clix', NOW - 5 * 60_000);
+  logSent(s, 'geral', NOW - 5 * 60_000);
+  assert.equal(sentLastHour(s, 'clix', NOW), 2);
+  assert.equal(sentLastHour(s, 'geral', NOW), 1);
+  assert.equal(sentLastHour(s, 'lacy', NOW), 0);
+});
+
+test('log de envios é salvo, carregado e podado depois de 24h', () => {
+  const { logSent } = require('../../src/state');
+  const file = path.join(tmp(), 'state.json');
+  const s = emptyState();
+  logSent(s, 'velho', NOW - 25 * 3600_000);
+  logSent(s, 'novo', NOW - 3600_000);
+  saveState(file, s, { now: NOW });
+  assert.deepEqual(loadState(file).log.map((e) => e.k), ['novo']);
+  fs.writeFileSync(file, JSON.stringify({ clips: {}, log: 'lixo' }));
+  assert.deepEqual(loadState(file).log, []);
+});

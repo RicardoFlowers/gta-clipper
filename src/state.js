@@ -3,7 +3,8 @@ const fs = require('fs');
 const DAY = 24 * 3600_000;
 
 function emptyState() {
-  return { version: 1, clips: {}, telegramChatId: null, welcomed: false, lastAlert: null };
+  // log: quando cada clipe saiu, por "fila" (geral ou id da campanha), pro limite por hora
+  return { version: 1, clips: {}, log: [], telegramChatId: null, welcomed: false, lastAlert: null };
 }
 
 function loadState(file) {
@@ -11,7 +12,8 @@ function loadState(file) {
     const data = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (!data || typeof data !== 'object' || Array.isArray(data)) return emptyState();
     const clips = data.clips && typeof data.clips === 'object' && !Array.isArray(data.clips) ? data.clips : {};
-    return { ...emptyState(), ...data, clips };
+    const log = Array.isArray(data.log) ? data.log.filter((e) => e && typeof e.k === 'string') : [];
+    return { ...emptyState(), ...data, clips, log };
   } catch {
     return emptyState();
   }
@@ -23,6 +25,16 @@ function prune(state, keepMs, now = Date.now()) {
     const t = Date.parse(entry && entry.t);
     if (!Number.isFinite(t) || now - t > keepMs) delete state.clips[id];
   }
+  state.log = (state.log || []).filter((e) => now - Date.parse(e.at) < DAY);
+}
+
+function logSent(state, key, now = Date.now()) {
+  state.log = state.log || [];
+  state.log.push({ k: key, at: new Date(now).toISOString() });
+}
+
+function sentLastHour(state, key, now = Date.now()) {
+  return (state.log || []).filter((e) => e.k === key && now - Date.parse(e.at) < 3600_000).length;
 }
 
 function saveState(file, state, { lookbackHours = 6, now = Date.now() } = {}) {
@@ -47,4 +59,4 @@ function markFail(state, clip, reason) {
   };
 }
 
-module.exports = { emptyState, loadState, saveState, prune, markOk, markFail };
+module.exports = { emptyState, loadState, saveState, prune, markOk, markFail, logSent, sentLastHour };

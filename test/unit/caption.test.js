@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { cleanTitle, escapeHtml, postCaption, telegramCaption, formatViews } = require('../../src/caption');
+const { cleanTitle, escapeHtml, postCaption, telegramCaption, formatViews, campaignPostCaption, campaignTelegramCaption } = require('../../src/caption');
 
 // Texto visível depois que o Telegram interpreta o HTML (é isso que conta no limite de 1024)
 const visible = (html) =>
@@ -65,4 +65,51 @@ test('formata views', () => {
   assert.equal(formatViews(9_960), '10 mil');
   assert.equal(formatViews(9_940), '9,9 mil');
   assert.equal(formatViews(undefined), '0');
+});
+
+// ---------- campanhas ----------
+
+const camp = {
+  name: 'Maratona <Clix> & cia',
+  source: 'twitch',
+  lang: 'en',
+  mention: 'Clix',
+  hashtags: '#Clix #GTA6',
+  disclosure: '#ad',
+  postWhere: 'TikTok (inglês)',
+  submitUrl: 'https://contentrewards.com/c/campaigns/abc?x=1&y=2',
+  rulesUrl: 'https://reachclipping.com/ClixGTA',
+};
+
+test('legenda de campanha: menciona o streamer, hashtags e #ad', () => {
+  const t = campaignPostCaption({ ...base, title: 'he crashed the car !discord' }, 'clix', camp);
+  assert.equal(t, 'Clix: he crashed the car\n\n📺 twitch.tv/clix\n\n#Clix #GTA6 #ad');
+});
+
+test('não repete o nome se o título já menciona (sem diferenciar maiúscula)', () => {
+  const t = campaignPostCaption({ ...base, title: 'CLIX loses it in GTA 6' }, 'clix', camp);
+  assert.ok(t.startsWith('CLIX loses it in GTA 6\n'));
+});
+
+test('campanha em português e da Kick usa crédito em PT e kick.com', () => {
+  const t = campaignPostCaption({ ...base, title: 'fugiu da polícia' }, 'coringa', {
+    ...camp, lang: 'pt', source: 'kick', mention: 'Coringa', hashtags: '#ngcash', disclosure: '#publi',
+  });
+  assert.equal(t, 'Coringa: fugiu da polícia\n\n🎮 Créditos: kick.com/coringa\n\n#ngcash #publi');
+});
+
+test('mensagem do Telegram da campanha: nome, onde postar, links e legenda copiável, tudo escapado', () => {
+  const html = campaignTelegramCaption(base, 'clix', camp);
+  assert.ok(html.includes('💰 <b>Maratona &lt;Clix&gt; &amp; cia</b>'));
+  assert.ok(html.includes('Postar em: TikTok (inglês)'));
+  assert.ok(html.includes('href="https://contentrewards.com/c/campaigns/abc?x=1&amp;y=2"'));
+  assert.ok(html.includes('href="https://reachclipping.com/ClixGTA"'));
+  assert.match(html, /30 min/);
+  assert.match(html, /<code>[\s\S]*#Clix #GTA6 #ad<\/code>$/);
+  assert.ok(visible(html).length <= 1024);
+});
+
+test('mensagem da campanha continua dentro do limite com hashtags enormes', () => {
+  const html = campaignTelegramCaption({ ...base, title: 'x'.repeat(150) }, 'clix', { ...camp, hashtags: '#tag '.repeat(300) });
+  assert.ok(visible(html).length <= 1024, `tamanho ${visible(html).length}`);
 });

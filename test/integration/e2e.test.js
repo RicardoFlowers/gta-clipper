@@ -22,9 +22,10 @@ if (!SKIP) {
 }
 
 // O "mundo" simulado: Twitch, Telegram e arquivos, num servidor só
-function world({ clips, updates = [{ update_id: 1, message: { chat: { id: 777, type: 'private' }, text: '/start' } }], twitchDown = false, fail = {} }) {
+function world({ clips, channelClips = {}, users = {}, updates = [{ update_id: 1, message: { chat: { id: 777, type: 'private' }, text: '/start' } }], twitchDown = false, fail = {} }) {
   // fail: { getUpdates: [status, descrição], sendMessage: [...], sendVideo: [...] } simula erros do Telegram
-  const w = { clips, updates, twitchDown, fail, videos: [], messages: [], downloads: 0, revoked: 0 };
+  // channelClips: { broadcaster_id: [clipes] } (campanhas) | users: { login: broadcaster_id }
+  const w = { clips, channelClips, users, updates, twitchDown, fail, videos: [], messages: [], downloads: 0, revoked: 0, clipQueries: [] };
   const files = serveDir(media);
   w.handler = async (req, res) => {
     if (req.path.startsWith('/media/')) {
@@ -40,8 +41,18 @@ function world({ clips, updates = [{ update_id: 1, message: { chat: { id: 777, t
       if (w.twitchDown) return json(res, 503, { message: 'Service Unavailable' });
       const p = req.path.slice(7);
       if (p === 'games') return json(res, 200, { data: [{ id: '42', name: 'Grand Theft Auto VI' }] });
-      if (p === 'clips') return json(res, 200, { data: w.clips.map((c) => ({ ...c, url: `${w.base}/media/${c.file}` })), pagination: {} });
-      if (p === 'users') return json(res, 200, { data: req.query.getAll('id').map((id) => ({ id, login: `login_${id}` })) });
+      if (p === 'clips') {
+        w.clipQueries.push(Object.fromEntries(req.query));
+        const b = req.query.get('broadcaster_id');
+        const list = b ? w.channelClips[b] || [] : w.clips;
+        return json(res, 200, { data: list.map((c) => ({ ...c, url: `${w.base}/media/${c.file}` })), pagination: {} });
+      }
+      if (p === 'users') {
+        const logins = req.query.getAll('login');
+        if (logins.length)
+          return json(res, 200, { data: logins.filter((l) => w.users[l]).map((l) => ({ id: w.users[l], login: l, display_name: l })) });
+        return json(res, 200, { data: req.query.getAll('id').map((id) => ({ id, login: `login_${id}` })) });
+      }
     }
     const m = req.path.match(/^\/bot([^/]+)\/(\w+)$/);
     if (m) {
@@ -100,6 +111,7 @@ async function setup(t, opts) {
     OUTPUT_DIR: path.join(work, 'output'),
     TMP_DIR: path.join(work, 'tmp'),
     FONT_FILE: '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+    CAMPAIGNS_FILE: path.join(work, 'sem-campanhas.json'),
     ...(opts.env || {}),
   };
   const state = () => JSON.parse(fs.readFileSync(env.STATE_FILE, 'utf8'));
@@ -295,4 +307,88 @@ test('Twitch fora do ar: avisa no Telegram uma vez só (não spamma a cada 10 mi
   assert.match(alerts()[0].text, /503/);
   await runClipper(env);
   assert.equal(alerts().length, 1);
+});
+
+// ---------- campanhas ----------
+
+function writeCampaigns(work, data) {
+  const f = path.join(work, 'campaigns.json');
+  fs.writeFileSync(f, JSON.stringify(data));
+  return f;
+}
+
+const SINCE = new Date(NOW - 3 * 3600_000).toISOString(); // "maratona" começou há 3h
+
+test('campanha: só o streamer dela, com legenda e link da campanha; geral não repete o streamer e respeita o limite por hora', { skip: SKIP }, async (t) => {
+  const { w, env, work, state } = await setup(t, {
+    users: { streamerx: 'X1' },
+    channelClips: {
+      X1: [
+        clip('cx1', 'X1', { views: 900, min: 15, lang: 'en', title: 'he jumped off the building' }),
+        clip('cx2', 'X1', { views: 600, min: 50, lang: 'en', file: 'b.mp4', title: 'StreamerX vs the cops' }),
+        clip('cx3', 'X1', { views: 500, min: 90, lang: 'en', file: 'c.mp4' }),
+        clip('antes', 'X1', { views: 9000, min: 5 * 60, lang: 'en' }), // antes do início da maratona
+      ],
+    },
+    clips: [
+      clip('gx', 'X1', { views: 5000, lang: 'en' }), // streamer da campanha aparecendo no geral
+      clip('g1', 'G1', { views: 400, lang: 'pt' }),
+      clip('g2', 'G2', { views: 300, lang: 'pt', file: 'b.mp4' }),
+    ],
+  });
+  env.CAMPAIGNS_FILE = writeCampaigns(work, {
+    general: { enabled: true, maxPerHour: 1 },
+    campaigns: [
+      {
+        id: 'x-gta6', name: 'Maratona X', source: 'twitch', channels: ['streamerx'], since: SINCE, lang: 'en',
+        maxPerHour: 2, maxPerRun: 2, minViews: 10, mention: 'StreamerX', hashtags: '#StreamerX #GTA6', disclosure: '#ad',
+        overlay: 'STREAMERX', postWhere: 'TikTok (EN)', submitUrl: 'https://example.com/enviar', rulesUrl: 'https://example.com/regras',
+      },
+      { id: 'kick-off', name: 'Kick', source: 'kick', channels: ['coringa'], submitUrl: 'https://x' },
+    ],
+  });
+
+  const r1 = await runClipper(env);
+  assert.equal(r1.code, 0, r1.out);
+  assert.match(r1.out, /clipes da kick ainda não são suportados/);
+  const camp = w.videos.filter((v) => /💰/.test(v.caption));
+  const geral = w.videos.filter((v) => !/💰/.test(v.caption));
+  assert.equal(camp.length, 2, r1.out);
+  assert.equal(geral.length, 1, 'geral limitado a 1 por hora');
+  for (const v of camp) {
+    assert.match(v.caption, /Maratona X/);
+    assert.match(v.caption, /href="https:\/\/example.com\/enviar"/);
+    assert.match(v.caption, /<code>[\s\S]*StreamerX[\s\S]*#StreamerX #GTA6 #ad<\/code>/);
+    assert.equal(probe(v.file).height, 1920);
+  }
+  assert.doesNotMatch(geral[0].caption, /login_X1/, 'streamer da campanha não sai no geral');
+  const sent = Object.keys(state().clips).sort();
+  assert.ok(!sent.includes('antes'), 'clipe de antes da maratona não entra');
+  assert.ok(!sent.includes('gx'));
+  assert.deepEqual(state().log.map((e) => e.k).sort(), ['geral', 'x-gta6', 'x-gta6']);
+  // a busca da campanha começou no início da maratona, não 6h atrás
+  const q = w.clipQueries.find((x) => x.broadcaster_id === 'X1');
+  assert.ok(Math.abs(Date.parse(q.started_at) - Date.parse(SINCE)) < 5000);
+
+  // Rodada 2 na mesma hora: campanha (2/h) e geral (1/h) já bateram o limite
+  const r2 = await runClipper(env);
+  assert.equal(r2.code, 0, r2.out);
+  assert.equal(w.videos.length, 3);
+  assert.match(r2.out, /\[x-gta6\] limite de 2\/hora/);
+  assert.match(r2.out, /\[geral\] limite de 1\/hora/);
+});
+
+test('campanha com canal inexistente e campaigns.json com erro: avisa e segue com o geral', { skip: SKIP }, async (t) => {
+  const { w, env, work } = await setup(t, { users: {}, clips: [clip('g1', 'G1')] });
+  env.CAMPAIGNS_FILE = writeCampaigns(work, {
+    campaigns: [
+      { id: 'fantasma', name: 'Fantasma', channels: ['naoexiste'], submitUrl: 'https://x' },
+      { id: 'Errado!', channels: [] },
+    ],
+  });
+  const r = await runClipper(env);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /canal "naoexiste" não existe na Twitch/);
+  assert.match(r.out, /precisa ser tipo/);
+  assert.equal(w.videos.length, 1);
 });

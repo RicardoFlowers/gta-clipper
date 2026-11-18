@@ -161,3 +161,30 @@ test('logins dos streamers em lotes de 100', async (t) => {
   const userReqs = srv.requests.filter((r) => r.path === '/helix/users');
   assert.deepEqual(userReqs.map((r) => r.query.getAll('id').length), [100, 50]);
 });
+
+test('canais por login e clipes de um canal a partir do início da maratona', async (t) => {
+  const reqs = [];
+  const srv = await startServer(async (req, res) => {
+    if (req.path === '/oauth2/token') return json(res, 200, { access_token: 'tok', expires_in: 999999 });
+    reqs.push(req);
+    if (req.path === '/helix/users')
+      return json(res, 200, { data: req.query.getAll('login').filter((l) => l !== 'naoexiste').map((l) => ({ id: `id-${l}`, login: l, display_name: l.toUpperCase() })) });
+    if (req.path === '/helix/clips') return json(res, 200, { data: [{ id: `c-${req.query.get('broadcaster_id')}` }], pagination: {} });
+    return json(res, 404, {});
+  });
+  t.after(srv.close);
+  const tw = createTwitch({ clientId: 'cid', clientSecret: 'sec', apiBase: `${srv.url}/helix`, authUrl: `${srv.url}/oauth2/token` });
+
+  const users = await tw.getUsersByLogin(['Clix', 'lacy', 'clix', 'naoexiste']);
+  assert.deepEqual([...users.keys()], ['clix', 'lacy']);
+  assert.equal(users.get('clix').id, 'id-clix');
+
+  const since = Date.now() - 2 * 3600_000; // maratona começou há 2h, janela pedida é de 6h
+  const clips = await tw.getChannelClips('id-clix', 6, { sinceMs: since });
+  assert.deepEqual(clips.map((c) => c.id), ['c-id-clix']);
+  const clipReqs = reqs.filter((r) => r.path === '/helix/clips');
+  assert.equal(clipReqs[0].query.get('broadcaster_id'), 'id-clix');
+  assert.equal(clipReqs[0].query.get('game_id'), null);
+  assert.ok(Math.abs(Date.parse(clipReqs[0].query.get('started_at')) - since) < 2000, 'janela começa no início da maratona');
+  assert.equal(clipReqs.length, 2, '6h (a partir do since) + última hora');
+});

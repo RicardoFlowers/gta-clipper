@@ -1,0 +1,66 @@
+{
+  "_leia": "Campanhas pagas de cortes. enabled=false desliga. maxPerHour limita quantos clipes de cada campanha chegam no Telegram por hora. Regras completas no rulesUrl de cada uma.",
+  "general": {
+    "enabled": true,
+    "maxPerHour": 2
+  },
+  "campaigns": [
+    {
+      "id": "clix-gta6",
+      "enabled": true,
+      "name": "Maratona GTA 6 do Clix (Reach, US$ 5 mil)",
+      "source": "twitch",
+      "channels": ["clix"],
+      "since": "2026-11-18T00:00:00Z",
+      "lang": "en",
+      "maxPerHour": 3,
+      "minViews": 30,
+      "mention": "Clix",
+      "hashtags": "#Clix #GTA6 #GTAVI",
+      "disclosure": "#ad",
+      "overlay": "CLIX",
+      "postWhere": "TikTok, Reels, Shorts ou X, na conta em INGLÊS (público ≥50% EUA/CA/UK/AU/NZ)",
+      "submitUrl": "https://contentrewards.com/c/campaigns/985dc674-c75e-44fc-ac87-1b1506324389",
+      "rulesUrl": "https://reachclipping.com/ClixGTA",
+      "note": "Mínimo de 400 mil views aprovadas pra entrar na divisão. Clix tem que ser o foco. Nada de logos, IA ou falar mal dele."
+    },
+    {
+      "id": "lacy-gta6",
+      "enabled": true,
+      "name": "Maratona GTA 6 do Lacy (Reach, US$ 12,5 mil)",
+      "source": "twitch",
+      "channels": ["lacy"],
+      "since": "2026-11-18T00:00:00Z",
+      "lang": "en",
+      "maxPerHour": 3,
+      "minViews": 30,
+      "mention": "LACY",
+      "hashtags": "#LACY #GTA6 #GTAVI",
+      "disclosure": "#ad",
+      "overlay": "LACY",
+      "postWhere": "TikTok, Reels, Shorts ou X, na conta em INGLÊS (público ≥50% EUA/CA/UK/AU/NZ)",
+      "submitUrl": "https://contentrewards.com/c/campaigns/a5c63fad-cd53-4b81-9305-4a2d1696872a",
+      "rulesUrl": "https://reachclipping.com/LACYGTA",
+      "note": "Mínimo de 750 mil views aprovadas pra entrar na divisão. LACY tem que ser o foco. Nada de logos, IA ou falar mal dele."
+    },
+    {
+      "id": "coringa-ngcash",
+      "enabled": false,
+      "name": "Ng.Cash + Coringa GTA VI (Viewx, ranking R$ 12 mil)",
+      "source": "kick",
+      "channels": ["coringa"],
+      "since": "2026-11-18T00:00:00Z",
+      "lang": "pt",
+      "maxPerHour": 3,
+      "minViews": 30,
+      "mention": "Coringa",
+      "hashtags": "#ngcash #GTA6 #Coringa",
+      "disclosure": "#publi",
+      "overlay": "kick.com/coringa",
+      "postWhere": "TikTok, Instagram, YouTube ou X (conta em português)",
+      "submitUrl": "https://viewx.com.br/campanhas/coringa-x-ng-cash-gta-vi",
+      "rulesUrl": "https://viewx.com.br/campanhas/coringa-x-ng-cash-gta-vi",
+      "note": "Coringa transmite na Kick: desligada até o bot ler clipes da Kick."
+    }
+  ]
+}

@@ -10,6 +10,19 @@ A cada 10 minutos, pega os clipes de **GTA VI** que estão bombando na Twitch, c
 - No máximo 1 clipe por streamer por rodada e 3 por rodada
 - Nunca repete um clipe já enviado
 
+## Campanhas pagas (`campaigns.json`)
+
+Cada campanha diz **quais streamers clipar** e **como o post tem que sair**. O bot busca os clipes desses canais desde o início da campanha (`since`) e converte. Cada clipe chega no Telegram com:
+
+- 💰 nome da campanha e **onde postar** (ex.: conta em inglês)
+- a legenda copiável já com o nome do streamer, as hashtags obrigatórias e o aviso de publicidade (`#ad` / `#publi`)
+- o aviso `#ad` escrito no topo do vídeo nos 3 primeiros segundos e o nome do streamer embaixo
+- links pra **enviar o post** (tem campanha que só aceita até 30 min depois de postar) e pras regras
+
+Campos principais: `enabled`, `channels` (logins da Twitch), `since`/`until`, `lang` (`en`/`pt`), `maxPerHour` (limite de clipes por hora no Telegram), `minViews`, `mention`, `hashtags`, `disclosure`, `overlay`, `postWhere`, `submitUrl`, `rulesUrl`. O bloco `general` controla o modo geral (GTA 6 de qualquer streamer); streamers de campanha não saem no geral.
+
+Pra ligar/desligar uma campanha, edite `campaigns.json` direto no GitHub e mude `enabled`. Campanhas com `source: "kick"` ainda não são suportadas e ficam desligadas.
+
 ## Configuração
 
 Em **Settings → Secrets and variables → Actions**:

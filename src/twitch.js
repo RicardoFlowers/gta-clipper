@@ -63,11 +63,12 @@ function createTwitch({ clientId, clientSecret, apiBase, authUrl, fetchImpl = gl
     throw new Error(`Categoria "${name}" não encontrada na Twitch`);
   }
 
-  async function fetchWindow(gameId, hours, maxPages, seen, all) {
+  // filter: { game_id } ou { broadcaster_id }. sinceMs limita o começo da janela.
+  async function fetchWindow(filter, hours, maxPages, seen, all, sinceMs = 0) {
     const now = Date.now();
     const query = {
-      game_id: gameId,
-      started_at: new Date(now - hours * 3600_000).toISOString(),
+      ...filter,
+      started_at: new Date(Math.max(now - hours * 3600_000, sinceMs)).toISOString(),
       ended_at: new Date(now).toISOString(),
       first: 100,
     };
@@ -91,9 +92,30 @@ function createTwitch({ clientId, clientSecret, apiBase, authUrl, fetchImpl = gl
   async function getClips(gameId, lookbackHours, { maxPages = 3, recentHours = 1, recentPages = 2 } = {}) {
     const all = [];
     const seen = new Set();
-    await fetchWindow(gameId, lookbackHours, maxPages, seen, all);
-    if (recentHours > 0 && recentHours < lookbackHours) await fetchWindow(gameId, recentHours, recentPages, seen, all);
+    await fetchWindow({ game_id: gameId }, lookbackHours, maxPages, seen, all);
+    if (recentHours > 0 && recentHours < lookbackHours) await fetchWindow({ game_id: gameId }, recentHours, recentPages, seen, all);
     return all;
+  }
+
+  // Clipes de um canal (campanhas), a partir de `sinceMs` (ex.: começo da maratona)
+  async function getChannelClips(broadcasterId, lookbackHours, { sinceMs = 0, maxPages = 2, recentHours = 1, recentPages = 1 } = {}) {
+    const all = [];
+    const seen = new Set();
+    const filter = { broadcaster_id: broadcasterId };
+    await fetchWindow(filter, lookbackHours, maxPages, seen, all, sinceMs);
+    if (recentHours > 0 && recentHours < lookbackHours) await fetchWindow(filter, recentHours, recentPages, seen, all, sinceMs);
+    return all;
+  }
+
+  // login -> { id, login, display_name }
+  async function getUsersByLogin(logins) {
+    const unique = [...new Set(logins.map((l) => String(l).toLowerCase()).filter(Boolean))];
+    const map = new Map();
+    for (let i = 0; i < unique.length; i += 100) {
+      const res = await helix('users', { login: unique.slice(i, i + 100) });
+      for (const u of res.data || []) map.set(u.login.toLowerCase(), { id: u.id, login: u.login, display_name: u.display_name });
+    }
+    return map;
   }
 
   // Revoga o token no fim da rodada: cada execução no GitHub pede um token novo,
@@ -122,7 +144,7 @@ function createTwitch({ clientId, clientSecret, apiBase, authUrl, fetchImpl = gl
     return map;
   }
 
-  return { findGame, getClips, getLogins, revoke };
+  return { findGame, getClips, getChannelClips, getUsersByLogin, getLogins, revoke };
 }
 
 module.exports = { createTwitch };
