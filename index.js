@@ -16,6 +16,7 @@ loadDotEnv();
 const cfg = readConfig();
 
 const { createTwitch } = require('./src/twitch');
+const { createKick } = require('./src/kick');
 const { createTelegram } = require('./src/telegram');
 const { checkTools, download, toVertical } = require('./src/video');
 const { selectClips } = require('./src/select');
@@ -127,6 +128,7 @@ function campaignProfile(camp) {
   return {
     key: camp.id,
     label: camp.name,
+    maxSeconds: Math.ceil(camp.maxDuration) + 2,
     overlay: (clip, login) => camp.overlay || `${site}/${login}`,
     topText: camp.disclosure || null,
     postCaption: (clip, login) => campaignPostCaption(clip, login, camp),
@@ -144,12 +146,13 @@ async function processClip(clip, login, telegram, profile) {
   let produced = false;
 
   try {
-    await download(clip.url, raw);
+    await download(clip.downloadUrl || clip.url, raw);
     fs.mkdirSync(dir, { recursive: true });
     const { bytes, fontMissing } = await toVertical(raw, video, {
       creditText: profile.overlay(clip, login),
       topText: profile.topText,
       fontFile: cfg.fontFile,
+      maxSeconds: profile.maxSeconds || 62,
     });
     produced = true;
     if (fontMissing) annotate('warning', 'Fonte', `FONT_FILE não encontrado (${cfg.fontFile}), vídeo saiu sem texto escrito`);
@@ -200,7 +203,7 @@ function remainingThisHour(state, key, maxPerHour) {
 
 async function processQueue(run, picked, profile, loginFor) {
   for (const clip of picked) {
-    const login = loginFor(clip.broadcaster_id) || String(clip.broadcaster_name || '').toLowerCase();
+    const login = loginFor(clip.broadcaster_id) || clip.login || String(clip.broadcaster_name || '').toLowerCase();
     log(`▶ [${profile.key}] ${clip.broadcaster_name}: "${cleanTitle(clip.title)}" (${clip.view_count} views, ${Math.round(clip.duration)}s, ${clip.language})`);
     run.attempted++;
     try {
@@ -220,46 +223,89 @@ async function processQueue(run, picked, profile, loginFor) {
   }
 }
 
-async function runCampaigns(ctx, run, campaigns) {
-  const twitchCamps = campaigns.filter((c) => c.source === 'twitch');
-  for (const c of campaigns.filter((x) => x.source !== 'twitch')) {
-    annotate('notice', 'Campanha pulada', `${c.name}: clipes da ${c.source} ainda não são suportados`);
+async function ensureGame(ctx) {
+  if (!ctx.game) {
+    ctx.game = await ctx.twitch.findGame(cfg.gameName);
+    log(`Categoria: ${ctx.game.name} (id ${ctx.game.id})`);
+    if (normName(ctx.game.name) !== normName(cfg.gameName))
+      annotate('warning', 'Categoria', `"${cfg.gameName}" não existe com esse nome na Twitch; usando "${ctx.game.name}". Confira GAME_NAME.`);
   }
-  const channelIds = new Set();
-  if (!twitchCamps.length) return channelIds;
+  return ctx.game;
+}
 
+// Clipe é do jogo? Twitch: id da categoria. Kick: nome/slug da categoria.
+function matchesGame(clip, ctx) {
+  if (clip.source === 'kick') {
+    const want = normName(cfg.gameName);
+    const name = normName(clip.category);
+    const slugName = normName(clip.category_slug);
+    return name.includes(want) || slugName.includes(want) || ['gtavi', 'gta6'].includes(name);
+  }
+  return Boolean(ctx.game) && clip.game_id === ctx.game.id;
+}
+
+async function campaignClips(ctx, camp, channelIds) {
+  if (camp.source === 'kick') {
+    ctx.kick = ctx.kick || createKick({ base: cfg.kickBase });
+    const clips = [];
+    for (const slug of camp.channels) clips.push(...(await ctx.kick.getChannelClips(slug)));
+    return { clips, loginFor: () => null };
+  }
+
+  const users = camp.channels.map((l) => ctx.users.get(l)).filter(Boolean);
+  users.forEach((u) => channelIds.add(u.id));
+  const clips = [];
+  for (const u of users) clips.push(...(await ctx.twitch.getChannelClips(u.id, camp.lookbackHours, { sinceMs: camp.since || 0 })));
+  const byId = new Map(users.map((u) => [u.id, u.login]));
+  return { clips, loginFor: (id) => byId.get(id) };
+}
+
+async function runCampaigns(ctx, run, campaigns) {
+  const channelIds = new Set();
+  if (!campaigns.length) return channelIds;
+
+  // Logins da Twitch -> ids (uma vez por processo)
   ctx.users = ctx.users || new Map();
-  const missing = [...new Set(twitchCamps.flatMap((c) => c.channels))].filter((l) => !ctx.users.has(l));
+  const twitchLogins = [...new Set(campaigns.filter((c) => c.source === 'twitch').flatMap((c) => c.channels))];
+  const missing = twitchLogins.filter((l) => !ctx.users.has(l));
   if (missing.length) {
     const found = await ctx.twitch.getUsersByLogin(missing);
     for (const [login, u] of found) ctx.users.set(login, u);
     for (const l of missing) if (!found.has(l)) annotate('warning', 'Campanha', `canal "${l}" não existe na Twitch; confira campaigns.json`);
   }
+  // Mesmo campanha no limite da hora: os streamers dela não podem cair no modo geral
+  for (const l of twitchLogins) if (ctx.users.has(l)) channelIds.add(ctx.users.get(l).id);
 
-  for (const camp of twitchCamps) {
-    const users = camp.channels.map((l) => ctx.users.get(l)).filter(Boolean);
-    users.forEach((u) => channelIds.add(u.id));
+  for (const camp of campaigns) {
     const remaining = remainingThisHour(run.state, camp.id, camp.maxPerHour);
-    if (!users.length) continue;
     if (remaining === 0) {
       log(`[${camp.id}] limite de ${camp.maxPerHour}/hora atingido, fica pra próxima`);
       continue;
     }
-    let clips = [];
-    for (const u of users) clips.push(...(await ctx.twitch.getChannelClips(u.id, camp.lookbackHours, { sinceMs: camp.since || 0 })));
-    if (camp.since) clips = clips.filter((c) => Date.parse(c.created_at) >= camp.since);
-    const picked = selectClips(clips, run.state, {
-      minViews: camp.minViews,
-      maxDuration: camp.maxDuration,
-      languages: [],
-      boostLang: '',
-      boost: 1,
-      clipsPerRun: Math.min(camp.maxPerRun, remaining),
-      maxPerStreamer: 0,
-    });
-    log(`[${camp.id}] ${clips.length} clipes dos canais da campanha, ${picked.length} escolhidos`);
-    const byId = new Map(users.map((u) => [u.id, u.login]));
-    await processQueue(run, picked, campaignProfile(camp), (id) => byId.get(id));
+    // Cada campanha isolada: se uma falhar (ex.: Kick fora), as outras seguem e você recebe aviso
+    try {
+      let { clips, loginFor } = await campaignClips(ctx, camp, channelIds);
+      const total = clips.length;
+      if (camp.since) clips = clips.filter((c) => Date.parse(c.created_at) >= camp.since);
+      if (camp.gameOnly) {
+        if (camp.source === 'twitch') await ensureGame(ctx);
+        clips = clips.filter((c) => matchesGame(c, ctx));
+      }
+      const picked = selectClips(clips, run.state, {
+        minViews: camp.minViews,
+        maxDuration: camp.maxDuration,
+        languages: [],
+        boostLang: '',
+        boost: 1,
+        clipsPerRun: Math.min(camp.maxPerRun, remaining),
+        maxPerStreamer: 0,
+      });
+      log(`[${camp.id}] ${total} clipes dos canais da campanha, ${clips.length} dentro das regras, ${picked.length} escolhidos`);
+      await processQueue(run, picked, campaignProfile(camp), loginFor);
+    } catch (e) {
+      annotate('warning', `Campanha ${camp.id}`, e.message);
+      await alert(run.telegram, run.state, `campanha ${camp.id}: ${e.message.slice(0, 100)}`, `Campanha "${camp.name}" falhou nesta rodada: ${e.message}`);
+    }
   }
   return channelIds;
 }
@@ -270,12 +316,7 @@ async function runGeneral(ctx, run, general, excludeIds) {
     log(`[geral] limite de ${general.maxPerHour}/hora atingido, fica pra próxima`);
     return;
   }
-  if (!ctx.game) {
-    ctx.game = await ctx.twitch.findGame(cfg.gameName);
-    log(`Categoria: ${ctx.game.name} (id ${ctx.game.id})`);
-    if (normName(ctx.game.name) !== normName(cfg.gameName))
-      annotate('warning', 'Categoria', `"${cfg.gameName}" não existe com esse nome na Twitch; usando "${ctx.game.name}". Confira GAME_NAME.`);
-  }
+  await ensureGame(ctx);
   // Streamers de campanha ficam só na fila da campanha (com a legenda certa)
   const clips = (await ctx.twitch.getClips(ctx.game.id, cfg.lookbackHours)).filter((c) => !excludeIds.has(c.broadcaster_id));
   const picked = selectClips(clips, run.state, { ...cfg, clipsPerRun: Math.min(cfg.clipsPerRun, remaining) });

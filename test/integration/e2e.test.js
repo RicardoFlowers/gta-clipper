@@ -22,10 +22,10 @@ if (!SKIP) {
 }
 
 // O "mundo" simulado: Twitch, Telegram e arquivos, num servidor só
-function world({ clips, channelClips = {}, users = {}, updates = [{ update_id: 1, message: { chat: { id: 777, type: 'private' }, text: '/start' } }], twitchDown = false, fail = {} }) {
+function world({ clips, channelClips = {}, users = {}, kick = {}, updates = [{ update_id: 1, message: { chat: { id: 777, type: 'private' }, text: '/start' } }], twitchDown = false, fail = {} }) {
   // fail: { getUpdates: [status, descrição], sendMessage: [...], sendVideo: [...] } simula erros do Telegram
   // channelClips: { broadcaster_id: [clipes] } (campanhas) | users: { login: broadcaster_id }
-  const w = { clips, channelClips, users, updates, twitchDown, fail, videos: [], messages: [], downloads: 0, revoked: 0, clipQueries: [] };
+  const w = { clips, channelClips, users, kick, updates, twitchDown, fail, videos: [], messages: [], downloads: 0, revoked: 0, clipQueries: [] };
   const files = serveDir(media);
   w.handler = async (req, res) => {
     if (req.path.startsWith('/media/')) {
@@ -36,6 +36,12 @@ function world({ clips, channelClips = {}, users = {}, updates = [{ update_id: 1
     if (req.path === '/oauth2/revoke') {
       w.revoked++;
       return json(res, 200, {});
+    }
+    const kickMatch = req.path.match(/^\/api\/v2\/channels\/([^/]+)\/clips$/);
+    if (kickMatch) {
+      if (!w.kick[kickMatch[1]]) return json(res, 404, { message: 'Channel not found' });
+      const list = w.kick[kickMatch[1]].map((c) => ({ ...c, clip_url: `${w.base}/media/${c.file}` }));
+      return req.query.get('sort') === 'view' ? json(res, 200, { clips: list, nextCursor: null }) : json(res, 200, { clips: [], nextCursor: null });
     }
     if (req.path.startsWith('/helix/')) {
       if (w.twitchDown) return json(res, 503, { message: 'Service Unavailable' });
@@ -112,6 +118,7 @@ async function setup(t, opts) {
     TMP_DIR: path.join(work, 'tmp'),
     FONT_FILE: '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
     CAMPAIGNS_FILE: path.join(work, 'sem-campanhas.json'),
+    KICK_BASE: srv.url,
     ...(opts.env || {}),
   };
   const state = () => JSON.parse(fs.readFileSync(env.STATE_FILE, 'utf8'));
@@ -344,13 +351,11 @@ test('campanha: só o streamer dela, com legenda e link da campanha; geral não 
         maxPerHour: 2, maxPerRun: 2, minViews: 10, mention: 'StreamerX', hashtags: '#StreamerX #GTA6', disclosure: '#ad',
         overlay: 'STREAMERX', postWhere: 'TikTok (EN)', submitUrl: 'https://example.com/enviar', rulesUrl: 'https://example.com/regras',
       },
-      { id: 'kick-off', name: 'Kick', source: 'kick', channels: ['coringa'], submitUrl: 'https://x' },
     ],
   });
 
   const r1 = await runClipper(env);
   assert.equal(r1.code, 0, r1.out);
-  assert.match(r1.out, /clipes da kick ainda não são suportados/);
   const camp = w.videos.filter((v) => /💰/.test(v.caption));
   const geral = w.videos.filter((v) => !/💰/.test(v.caption));
   assert.equal(camp.length, 2, r1.out);
@@ -391,4 +396,61 @@ test('campanha com canal inexistente e campaigns.json com erro: avisa e segue co
   assert.match(r.out, /canal "naoexiste" não existe na Twitch/);
   assert.match(r.out, /precisa ser tipo/);
   assert.equal(w.videos.length, 1);
+});
+
+function kickClip(id, { views = 300, min = 20, file = 'a.mp4', category = 'Grand Theft Auto VI', duration = 2, title = `kick ${id}` } = {}) {
+  return {
+    id, title, views, view_count: views, duration, created_at: ago(min), channel_id: 4124791,
+    category: { name: category, slug: category.toLowerCase().replace(/[^a-z0-9]+/g, '-') },
+    channel: { username: 'Coringa' }, file,
+  };
+}
+
+test('campanha da Kick: só clipes de GTA VI do canal, legenda em PT com #publi e créditos kick.com', { skip: SKIP }, async (t) => {
+  const { w, env, work, state } = await setup(t, {
+    clips: [],
+    kick: {
+      coringa: [
+        kickClip('k-gta', { views: 900 }),
+        kickClip('k-valorant', { views: 5000, category: 'VALORANT' }),
+        kickClip('k-gta5', { views: 4000, category: 'Grand Theft Auto V (GTA)' }),
+        kickClip('k-velho', { views: 9000, min: 5 * 60 }),
+        kickClip('k-longo', { views: 800, duration: 120, file: 'b.mp4' }),
+      ],
+    },
+  });
+  env.CAMPAIGNS_FILE = writeCampaigns(work, {
+    general: { enabled: false },
+    campaigns: [
+      {
+        id: 'coringa', name: 'Ng.Cash + Coringa', source: 'kick', channels: ['coringa'], since: SINCE, lang: 'pt',
+        gameOnly: true, maxDuration: 90, maxPerHour: 5, minViews: 10, mention: 'Coringa', hashtags: '#ngcash #GTA6',
+        disclosure: '#publi', overlay: 'kick.com/coringa', postWhere: 'TikTok (PT)', submitUrl: 'https://viewx.example/c',
+      },
+    ],
+  });
+  const r = await runClipper(env);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(w.videos.length, 1, r.out);
+  const v = w.videos[0];
+  assert.match(v.caption, /Ng\.Cash \+ Coringa/);
+  // multipart troca \n por \r\n (o Telegram mostra igual)
+  assert.match(v.caption.replace(/\r\n/g, '\n'), /<code>Coringa: kick k-gta\n\n🎮 Créditos: kick\.com\/coringa\n\n#ngcash #GTA6 #publi<\/code>/);
+  assert.match(v.caption, /href="https:\/\/kick\.com\/coringa\/clips\/k-gta"/);
+  assert.equal(probe(v.file).height, 1920);
+  assert.deepEqual(Object.keys(state().clips), ['k-gta']);
+  assert.match(r.out, /\[coringa\] 5 clipes dos canais da campanha, 2 dentro das regras, 1 escolhidos/);
+});
+
+test('Kick fora do ar: avisa no Telegram e as outras filas continuam', { skip: SKIP }, async (t) => {
+  const { w, env, work } = await setup(t, { clips: [clip('g1', 'G1')], kick: {} });
+  env.CAMPAIGNS_FILE = writeCampaigns(work, {
+    general: { enabled: true, maxPerHour: 5 },
+    campaigns: [{ id: 'k-sumiu', name: 'Kick sumiu', source: 'kick', channels: ['naoexiste'], submitUrl: 'https://x' }],
+  });
+  const r = await runClipper(env);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /canal "naoexiste" não existe na Kick/);
+  assert.equal(w.videos.length, 1, 'o modo geral continuou');
+  assert.ok(w.messages.some((m) => /Kick sumiu/.test(m.text)), 'aviso no Telegram');
 });

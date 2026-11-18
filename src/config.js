@@ -66,6 +66,7 @@ function readConfig(env = process.env) {
     twitchApiBase: str(env.TWITCH_API_BASE, 'https://api.twitch.tv/helix'),
     twitchAuthUrl: str(env.TWITCH_AUTH_URL, 'https://id.twitch.tv/oauth2/token'),
     telegramApiBase: str(env.TELEGRAM_API_BASE, 'https://api.telegram.org'),
+    kickBase: str(env.KICK_BASE, 'https://kick.com'),
   };
 }
 

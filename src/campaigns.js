@@ -44,6 +44,7 @@ function normalizeCampaign(raw, index) {
       maxPerRun: Math.max(1, num(raw.maxPerRun, 2)),
       minViews: Math.max(0, num(raw.minViews, 30)),
       maxDuration: num(raw.maxDuration, 60),
+      gameOnly: raw.gameOnly === true, // só clipes da categoria do jogo (GAME_NAME)
       lookbackHours: num(raw.lookbackHours, 6),
       mention: String(raw.mention || '').trim(),
       hashtags: String(raw.hashtags || '').trim(),

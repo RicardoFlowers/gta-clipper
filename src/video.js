@@ -73,14 +73,14 @@ function buildFilter({ textFile, fontFile, topTextFile, topSeconds = 3 }) {
   return `${f},format=yuv420p[v]`;
 }
 
-async function encode(inFile, outFile, filter, maxrate) {
+async function encode(inFile, outFile, filter, maxrate, maxSeconds = 62) {
   const bufsize = `${parseInt(maxrate, 10) * 2}${maxrate.replace(/^[0-9]+/, '')}`;
   await run('ffmpeg', [
     '-y', '-hide_banner', '-loglevel', 'error',
     '-i', inFile,
     '-filter_complex', filter,
     '-map', '[v]', '-map', '0:a?',
-    '-t', '62',
+    '-t', String(maxSeconds),
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', '-maxrate', maxrate, '-bufsize', bufsize,
     '-profile:v', 'high', '-r', '30', '-g', '60',
     '-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-ac', '2',
@@ -93,7 +93,7 @@ async function encode(inFile, outFile, filter, maxrate) {
  * Converte pra 1080x1920 (9:16): vídeo original no meio, fundo desfocado
  * e, se tiver fonte, o crédito do streamer escrito embaixo.
  */
-async function toVertical(inFile, outFile, { creditText, topText, fontFile, limitBytes = TELEGRAM_LIMIT } = {}) {
+async function toVertical(inFile, outFile, { creditText, topText, fontFile, limitBytes = TELEGRAM_LIMIT, maxSeconds = 62 } = {}) {
   const hasFont = Boolean(fontFile && fs.existsSync(fontFile));
   const fontOk = Boolean(hasFont && creditText);
   let textFile = null;
@@ -108,10 +108,10 @@ async function toVertical(inFile, outFile, { creditText, topText, fontFile, limi
   }
   try {
     const filter = buildFilter({ textFile, topTextFile, fontFile: hasFont ? fontFile : null });
-    await encode(inFile, outFile, filter, '5M');
+    await encode(inFile, outFile, filter, '5M', maxSeconds);
     let bytes = fs.statSync(outFile).size;
     if (bytes > limitBytes) {
-      await encode(inFile, outFile, filter, '2500k');
+      await encode(inFile, outFile, filter, '2500k', maxSeconds);
       bytes = fs.statSync(outFile).size;
     }
     return { bytes, fontUsed: fontOk, fontMissing: Boolean(fontFile && !hasFont && (creditText || topText)) };

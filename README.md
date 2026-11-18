@@ -19,9 +19,11 @@ Cada campanha diz **quais streamers clipar** e **como o post tem que sair**. O b
 - o aviso `#ad` escrito no topo do vídeo nos 3 primeiros segundos e o nome do streamer embaixo
 - links pra **enviar o post** (tem campanha que só aceita até 30 min depois de postar) e pras regras
 
-Campos principais: `enabled`, `channels` (logins da Twitch), `since`/`until`, `lang` (`en`/`pt`), `maxPerHour` (limite de clipes por hora no Telegram), `minViews`, `mention`, `hashtags`, `disclosure`, `overlay`, `postWhere`, `submitUrl`, `rulesUrl`. O bloco `general` controla o modo geral (GTA 6 de qualquer streamer); streamers de campanha não saem no geral.
+Campos principais: `enabled`, `source` (`twitch` ou `kick`), `channels` (logins/canais), `since`/`until`, `gameOnly` (só clipes de GTA 6), `lang` (`en`/`pt`), `maxPerHour` (limite de clipes por hora no Telegram), `minViews`, `maxDuration`, `mention`, `hashtags`, `disclosure`, `overlay`, `postWhere`, `submitUrl`, `rulesUrl`. O bloco `general` controla o modo geral (GTA 6 de qualquer streamer); streamers de campanha não saem no geral.
 
-Pra ligar/desligar uma campanha, edite `campaigns.json` direto no GitHub e mude `enabled`. Campanhas com `source: "kick"` ainda não são suportadas e ficam desligadas.
+Kick: não tem API oficial de clipes, então o bot usa o mesmo endpoint do site (e o yt-dlp se ele for bloqueado). Se a Kick mudar algo, a campanha falha sozinha e chega um aviso no Telegram; as outras continuam.
+
+Pra ligar/desligar uma campanha, edite `campaigns.json` direto no GitHub e mude `enabled`.
 
 ## Configuração
 

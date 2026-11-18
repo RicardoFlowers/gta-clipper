@@ -1,5 +1,5 @@
 {
-  "_leia": "Campanhas pagas de cortes. enabled=false desliga. maxPerHour limita quantos clipes de cada campanha chegam no Telegram por hora. Regras completas no rulesUrl de cada uma.",
+  "_leia": "Campanhas pagas de cortes (Twitch ou Kick). enabled=false desliga. maxPerHour limita quantos clipes de cada campanha chegam no Telegram por hora. Regras completas no rulesUrl de cada uma.",
   "general": {
     "enabled": true,
     "maxPerHour": 2
@@ -10,7 +10,9 @@
       "enabled": true,
       "name": "Maratona GTA 6 do Clix (Reach, US$ 5 mil)",
       "source": "twitch",
-      "channels": ["clix"],
+      "channels": [
+        "clix"
+      ],
       "since": "2026-11-18T00:00:00Z",
       "lang": "en",
       "maxPerHour": 3,
@@ -29,7 +31,9 @@
       "enabled": true,
       "name": "Maratona GTA 6 do Lacy (Reach, US$ 12,5 mil)",
       "source": "twitch",
-      "channels": ["lacy"],
+      "channels": [
+        "lacy"
+      ],
       "since": "2026-11-18T00:00:00Z",
       "lang": "en",
       "maxPerHour": 3,
@@ -45,10 +49,12 @@
     },
     {
       "id": "coringa-ngcash",
-      "enabled": false,
+      "enabled": true,
       "name": "Ng.Cash + Coringa GTA VI (Viewx, ranking R$ 12 mil)",
       "source": "kick",
-      "channels": ["coringa"],
+      "channels": [
+        "coringa"
+      ],
       "since": "2026-11-18T00:00:00Z",
       "lang": "pt",
       "maxPerHour": 3,
@@ -60,7 +66,10 @@
       "postWhere": "TikTok, Instagram, YouTube ou X (conta em português)",
       "submitUrl": "https://viewx.com.br/campanhas/coringa-x-ng-cash-gta-vi",
       "rulesUrl": "https://viewx.com.br/campanhas/coringa-x-ng-cash-gta-vi",
-      "note": "Coringa transmite na Kick: desligada até o bot ler clipes da Kick."
+      "note": "Ranking (só os primeiros colocados ganham), 199 inscritos em 18/11. Hashtag #ngcash obrigatória. Só clipes do Coringa jogando GTA VI na Kick.",
+      "gameOnly": true,
+      "maxDuration": 90,
+      "until": "2026-12-20T23:59:00-03:00"
     }
   ]
 }
