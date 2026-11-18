@@ -1,0 +1,39 @@
+name: kick-probe (temporario)
+on: workflow_dispatch
+permissions: {}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Testar acesso aos clipes da Kick
+        run: |
+          set +e
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"
+          for u in "https://kick.com/api/v2/channels/coringa" "https://kick.com/api/v2/channels/coringa/clips?sort=view&time=day"; do
+            code=$(curl -s -o /tmp/b -w "%{http_code}" -A "$UA" -H "Accept: application/json" "$u")
+            echo "CURL $code $u :: $(head -c 160 /tmp/b | tr '\n' ' ')"
+          done
+          python3 -m pip install -q --break-system-packages curl_cffi
+          python3 - <<'EOF'
+          from curl_cffi import requests
+          import json
+          for u in ["https://kick.com/api/v2/channels/coringa", "https://kick.com/api/v2/channels/coringa/clips?sort=view&time=day"]:
+              try:
+                  r = requests.get(u, impersonate="chrome", timeout=25)
+                  print("CFFI", r.status_code, u)
+                  if r.status_code == 200 and "clips" in u:
+                      d = r.json()
+                      clips = d.get("clips") or d.get("data") or []
+                      print("CFFI keys", list(d.keys())[:10], "n", len(clips))
+                      for c in clips[:3]:
+                          print("CFFI clip", json.dumps({k: c.get(k) for k in ["id","title","views","view_count","duration","created_at","clip_url","video_url","category"]})[:400])
+                  else:
+                      print("CFFI body", r.text[:160].replace("\n", " "))
+              except Exception as e:
+                  print("CFFI ERR", u, e)
+          EOF
+          sudo curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux -o /usr/local/bin/yt-dlp && sudo chmod a+rx /usr/local/bin/yt-dlp
+          echo "YTDLP $(yt-dlp --version)"
+          yt-dlp --list-impersonate-targets 2>&1 | head -4
+          timeout 90 yt-dlp -J --flat-playlist --playlist-end 3 "https://kick.com/coringa/clips" 2>&1 | head -c 500; echo
