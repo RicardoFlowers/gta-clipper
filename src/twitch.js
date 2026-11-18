@@ -63,17 +63,14 @@ function createTwitch({ clientId, clientSecret, apiBase, authUrl, fetchImpl = gl
     throw new Error(`Categoria "${name}" não encontrada na Twitch`);
   }
 
-  // Clipes da categoria criados nas últimas `lookbackHours` (a Twitch ordena por views)
-  async function getClips(gameId, lookbackHours, maxPages = 3) {
+  async function fetchWindow(gameId, hours, maxPages, seen, all) {
     const now = Date.now();
     const query = {
       game_id: gameId,
-      started_at: new Date(now - lookbackHours * 3600_000).toISOString(),
+      started_at: new Date(now - hours * 3600_000).toISOString(),
       ended_at: new Date(now).toISOString(),
       first: 100,
     };
-    const all = [];
-    const seen = new Set();
     let after;
     for (let page = 0; page < maxPages; page++) {
       const res = await helix('clips', after ? { ...query, after } : query);
@@ -86,7 +83,32 @@ function createTwitch({ clientId, clientSecret, apiBase, authUrl, fetchImpl = gl
       after = res.pagination && res.pagination.cursor;
       if (!after) break;
     }
+  }
+
+  // Clipes da categoria. A Twitch devolve ordenado por views, então no pico (milhares de
+  // clipes) só os 300 mais vistos das últimas 6h apareceriam e os clipes novos que estão
+  // subindo ficariam de fora. Por isso busca também a última hora separadamente.
+  async function getClips(gameId, lookbackHours, { maxPages = 3, recentHours = 1, recentPages = 2 } = {}) {
+    const all = [];
+    const seen = new Set();
+    await fetchWindow(gameId, lookbackHours, maxPages, seen, all);
+    if (recentHours > 0 && recentHours < lookbackHours) await fetchWindow(gameId, recentHours, recentPages, seen, all);
     return all;
+  }
+
+  // Revoga o token no fim da rodada: cada execução no GitHub pede um token novo,
+  // e não faz sentido deixar centenas de tokens válidos acumulando
+  async function revoke() {
+    if (!token) return;
+    const t = token;
+    token = null;
+    tokenExp = 0;
+    await fetchImpl(authUrl.replace(/\/token$/, '/revoke'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: clientId, token: t }),
+      signal: AbortSignal.timeout(10_000),
+    });
   }
 
   // id do streamer -> login (o nome que vai na URL twitch.tv/login)
@@ -100,7 +122,7 @@ function createTwitch({ clientId, clientSecret, apiBase, authUrl, fetchImpl = gl
     return map;
   }
 
-  return { findGame, getClips, getLogins };
+  return { findGame, getClips, getLogins, revoke };
 }
 
 module.exports = { createTwitch };

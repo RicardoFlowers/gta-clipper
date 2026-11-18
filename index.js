@@ -17,15 +17,19 @@ const { createTelegram } = require('./src/telegram');
 const { checkTools, download, toVertical } = require('./src/video');
 const { selectClips } = require('./src/select');
 const { loadState, saveState, markOk, markFail } = require('./src/state');
-const { telegramCaption, postCaption, cleanTitle, formatViews } = require('./src/caption');
+const { telegramCaption, postCaption, cleanTitle, formatViews, escapeHtml } = require('./src/caption');
 const { log, annotate, summary } = require('./src/log');
 
 const ALERT_EVERY_MS = 3 * 3600_000;
+const WELCOME =
+  '✅ <b>GTA Clipper conectado!</b>\nOs clipes de GTA 6 que estiverem bombando na Twitch vão chegar aqui já na vertical.\nToque no bloco da legenda pra copiar.';
+
+const normName = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 function slug(s) {
   return String(s || '')
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/\p{M}/gu, '') // tira acentos
     .replace(/[^a-zA-Z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 40) || 'clipe';
@@ -49,35 +53,46 @@ async function setupTelegram(state) {
     return { enabled: true, ready: false };
   }
 
-  let chatId = cfg.telegramChatId || state.telegramChatId;
-  if (!chatId) {
-    chatId = await tg.detectChatId();
+  // Daqui pra baixo qualquer erro do Telegram (fora do ar, bot bloqueado...) só pula a
+  // rodada; antes ele derrubava o processo inteiro (e o modo contínuo no PC parava).
+  try {
+    let chatId = cfg.telegramChatId || state.telegramChatId;
     if (!chatId) {
-      annotate('warning', 'Telegram', `Ainda não sei pra onde mandar: abra o @${me.username} no Telegram e mande /start`);
-      return { enabled: true, ready: false };
+      chatId = await tg.detectChatId();
+      if (!chatId) {
+        annotate('warning', 'Telegram', `Ainda não sei pra onde mandar: abra o @${me.username} no Telegram e mande /start`);
+        return { enabled: true, ready: false };
+      }
+      state.telegramChatId = chatId;
+      log('Telegram conectado'); // sem o id do chat: os logs de repositório público são públicos
     }
-    state.telegramChatId = chatId;
-    log(`Telegram conectado (chat ${chatId})`);
-  }
 
-  if (!state.welcomed) {
-    await tg.sendMessage(
-      chatId,
-      '✅ <b>GTA Clipper conectado!</b>\nOs clipes de GTA 6 que estiverem bombando na Twitch vão chegar aqui já na vertical.\nToque no bloco da legenda pra copiar.'
-    );
-    state.welcomed = true;
-    persist(state);
+    if (!state.welcomed) {
+      await tg.sendMessage(chatId, WELCOME);
+      state.welcomed = true;
+      persist(state);
+    }
+    return { enabled: true, ready: true, tg, chatId };
+  } catch (e) {
+    // Chat inválido (bot bloqueado, conversa apagada): esquece o chat salvo pra
+    // descobrir de novo no próximo /start
+    if (!cfg.telegramChatId && (e.status === 400 || e.status === 403)) {
+      state.telegramChatId = null;
+      state.welcomed = false;
+    }
+    annotate('warning', 'Telegram', `Não consegui falar com o Telegram agora (${e.message}). Tento de novo na próxima rodada.`);
+    return { enabled: true, ready: false };
   }
-  return { enabled: true, ready: true, tg, chatId };
 }
 
-async function alert(telegram, state, message) {
+// Aviso no Telegram, no máximo 1 vez a cada 3h pro mesmo problema
+async function alert(telegram, state, key, text) {
   if (!telegram || !telegram.ready) return;
   const last = state.lastAlert;
-  if (last && last.msg === message && Date.now() - Date.parse(last.at) < ALERT_EVERY_MS) return;
+  if (last && last.msg === key && Date.now() - Date.parse(last.at) < ALERT_EVERY_MS) return;
   try {
-    await telegram.tg.sendMessage(telegram.chatId, `⚠️ <b>Clipper com problema</b>\n${message.replace(/[<>&]/g, '')}`);
-    state.lastAlert = { msg: message, at: new Date().toISOString() };
+    await telegram.tg.sendMessage(telegram.chatId, `⚠️ <b>Clipper com problema</b>\n${escapeHtml(text)}`);
+    state.lastAlert = { msg: key, at: new Date().toISOString() };
     persist(state);
   } catch {
     // se nem o alerta sai, fica só no log
@@ -85,10 +100,13 @@ async function alert(telegram, state, message) {
 }
 
 async function processClip(clip, login, telegram) {
-  const name = `${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}_${slug(login)}_${slug(cleanTitle(clip.title))}`;
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  // o id no fim evita que dois clipes com o mesmo título (o título padrão é o da live) se sobrescrevam
+  const name = `${stamp}_${slug(login)}_${slug(cleanTitle(clip.title))}_${slug(clip.id).slice(-8)}`;
   const dir = path.join(cfg.outDir, name);
   const raw = path.join(cfg.tmpDir, `${slug(clip.id)}.mp4`);
   const video = path.join(dir, 'video.mp4');
+  let produced = false;
 
   try {
     await download(clip.url, raw);
@@ -97,6 +115,7 @@ async function processClip(clip, login, telegram) {
       creditText: `twitch.tv/${login}`,
       fontFile: cfg.fontFile,
     });
+    produced = true;
     if (fontMissing) annotate('warning', 'Fonte', `FONT_FILE não encontrado (${cfg.fontFile}), vídeo saiu sem o crédito escrito`);
 
     fs.writeFileSync(path.join(dir, 'legenda.txt'), postCaption(clip, login, cfg.hashtags));
@@ -118,6 +137,11 @@ async function processClip(clip, login, telegram) {
       });
     }
     return { dir: name, mb: (bytes / 1048576).toFixed(1) };
+  } catch (e) {
+    // Vídeo pronto que só não chegou no Telegram fica na pasta (vai pro backup do GitHub);
+    // pasta pela metade (download/conversão falhou) é apagada
+    if (!produced) fs.rmSync(dir, { recursive: true, force: true });
+    throw e;
   } finally {
     fs.rmSync(raw, { force: true });
   }
@@ -133,6 +157,8 @@ async function runOnce(ctx) {
     if (!ctx.game) {
       ctx.game = await ctx.twitch.findGame(cfg.gameName);
       log(`Categoria: ${ctx.game.name} (id ${ctx.game.id})`);
+      if (normName(ctx.game.name) !== normName(cfg.gameName))
+        annotate('warning', 'Categoria', `"${cfg.gameName}" não existe com esse nome na Twitch; usando "${ctx.game.name}". Confira GAME_NAME.`);
     }
     const clips = await ctx.twitch.getClips(ctx.game.id, cfg.lookbackHours);
     const picked = selectClips(clips, state, cfg);
@@ -152,6 +178,7 @@ async function runOnce(ctx) {
 
     const rows = [];
     let sent = 0;
+    let firstError = null;
     for (const clip of picked) {
       const login = logins.get(clip.broadcaster_id) || String(clip.broadcaster_name || '').toLowerCase();
       log(`▶ ${clip.broadcaster_name}: "${cleanTitle(clip.title)}" (${clip.view_count} views, ${Math.round(clip.duration)}s, ${clip.language})`);
@@ -163,6 +190,7 @@ async function runOnce(ctx) {
         rows.push(`| ✅ | ${clip.broadcaster_name} | ${formatViews(clip.view_count)} | ${clip.language} | ${cleanTitle(clip.title).replace(/\|/g, '/')} |`);
       } catch (e) {
         markFail(state, clip, e.message);
+        firstError = firstError || e.message;
         annotate('warning', `Falhou: ${clip.broadcaster_name}`, e.message);
         rows.push(`| ❌ | ${clip.broadcaster_name} | ${formatViews(clip.view_count)} | ${clip.language} | ${e.message.slice(0, 120).replace(/\|/g, '/')} |`);
       }
@@ -171,10 +199,16 @@ async function runOnce(ctx) {
 
     annotate('notice', 'Rodada', `${sent} de ${picked.length} clipes ${telegram.ready ? 'enviados pro Telegram' : 'gerados'} (${clips.length} na janela)`);
     summary(['| | Streamer | Views | Idioma | Título |', '|---|---|---|---|---|', ...rows].join('\n'));
+
+    // Se nenhum clipe saiu (ex.: a Twitch mudou algo e o yt-dlp quebrou), avisa em vez de ficar mudo
+    if (sent === 0 && firstError) {
+      await alert(telegram, state, `todos falharam: ${firstError.slice(0, 120)}`,
+        `Nenhum dos ${picked.length} clipes escolhidos saiu nesta rodada.\nPrimeiro erro: ${firstError.slice(0, 500)}`);
+    }
     return { sent, found: clips.length };
   } catch (e) {
     annotate('error', 'Erro na rodada', e.message);
-    await alert(telegram, state, e.message);
+    await alert(telegram, state, e.message, e.message);
     return { sent: 0, error: e.message };
   } finally {
     persist(state);
@@ -210,6 +244,7 @@ async function main() {
     log(`Próxima busca em ${cfg.intervalMin} min (Ctrl+C pra parar)\n`);
     await new Promise((r) => setTimeout(r, cfg.intervalMin * 60_000));
   }
+  await ctx.twitch.revoke().catch(() => {}); // melhor esforço
 }
 
 main().catch((e) => {

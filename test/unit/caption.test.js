@@ -60,5 +60,9 @@ test('formata views', () => {
   assert.equal(formatViews(1500), '1,5 mil');
   assert.equal(formatViews(25_400), '25 mil');
   assert.equal(formatViews(1_200_000), '1,2 mi');
+  assert.equal(formatViews(999_700), '1,0 mi');
+  assert.equal(formatViews(999_400), '999 mil');
+  assert.equal(formatViews(9_960), '10 mil');
+  assert.equal(formatViews(9_940), '9,9 mil');
   assert.equal(formatViews(undefined), '0');
 });

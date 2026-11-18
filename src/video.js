@@ -40,9 +40,15 @@ async function download(url, outFile) {
   if (!fs.existsSync(outFile) || fs.statSync(outFile).size === 0) throw new Error('yt-dlp não gerou o arquivo');
 }
 
-// Caminho dentro de filtro do ffmpeg: barra normal e ":" escapado (Windows "C:")
+// Valor dentro do -filter_complex passa por 2 níveis de escape do ffmpeg:
+// 1) opção do filtro (\ ' :)  2) filtergraph (\ ' [ ] , ;). Ex.: "C:/x" e "it's [a], b; c"
+function ffEscape(value) {
+  const optionLevel = String(value).replace(/[\\':]/g, '\\$&');
+  return optionLevel.replace(/[\\'[\],;]/g, '\\$&');
+}
+
 function ffPath(p) {
-  return path.resolve(p).replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
+  return ffEscape(path.resolve(p).replace(/\\/g, '/'));
 }
 
 function buildFilter({ textFile, fontFile }) {
@@ -54,7 +60,7 @@ function buildFilter({ textFile, fontFile }) {
     '[bg][fg]overlay=(W-w)/2:(H-h)/2';
   if (textFile && fontFile) {
     f +=
-      `,drawtext=fontfile='${ffPath(fontFile)}':textfile='${ffPath(textFile)}'` +
+      `,drawtext=fontfile=${ffPath(fontFile)}:textfile=${ffPath(textFile)}` +
       ':fontsize=48:fontcolor=white:borderw=4:bordercolor=black:x=(w-text_w)/2:y=1390';
   }
   return `${f},format=yuv420p[v]`;
@@ -101,4 +107,4 @@ async function toVertical(inFile, outFile, { creditText, fontFile, limitBytes = 
   }
 }
 
-module.exports = { run, checkTools, download, toVertical, buildFilter, TELEGRAM_LIMIT };
+module.exports = { run, checkTools, download, toVertical, buildFilter, ffEscape, TELEGRAM_LIMIT };

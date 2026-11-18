@@ -29,7 +29,8 @@ jobs:
 
       - name: Instalar ffmpeg e yt-dlp
         run: |
-          if ! command -v ffmpeg >/dev/null; then
+          # instala também se o runner já vier com ffmpeg mas sem a fonte do crédito
+          if ! command -v ffmpeg >/dev/null || [ ! -f /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf ]; then
             sudo apt-get update -qq
             sudo apt-get install -y -qq --no-install-recommends ffmpeg fonts-dejavu-core >/dev/null
           fi
@@ -38,8 +39,9 @@ jobs:
           ffmpeg -hide_banner -version | head -1
           echo "yt-dlp $(yt-dlp --version)"
 
+      # Testes só quando o código muda; "Run workflow" manual é pra mandar clipe rápido
       - name: Testes
-        if: github.event_name != 'schedule'
+        if: github.event_name == 'push'
         run: npm test
 
       - name: Restaurar estado (clipes já enviados)
@@ -55,7 +57,8 @@ jobs:
           TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID || 'zvvgur3ivmzu2tz7h9lrrfh7500p0s' }}
           TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Opcional, mas deixa à prova de perda do cache (variável TELEGRAM_CHAT_ID)
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || vars.TELEGRAM_CHAT_ID }}
           # Ajustes opcionais: Settings > Secrets and variables > Actions > aba Variables
           GAME_NAME: ${{ vars.GAME_NAME }}
           LANGUAGES: ${{ vars.LANGUAGES }}

@@ -54,6 +54,24 @@ test('crédito com caracteres chatos (aspas, dois-pontos, %) não quebra o filtr
   assert.equal(probe(out).width, 1080);
 });
 
+test('caminhos com apóstrofo, colchetes, vírgula, ponto e vírgula e dois-pontos (Windows "C:") funcionam', { skip: (!FFMPEG || !FONT) && 'sem ffmpeg/fonte' }, async () => {
+  const weird = path.join(dir, "it's a [weird], dir; x:y");
+  fs.mkdirSync(weird, { recursive: true });
+  const font = path.join(weird, 'fonte.ttf');
+  fs.copyFileSync(FONT, font);
+  const input = makeVideo(path.join(weird, 'in.mp4'), { seconds: 1 });
+  const r = await toVertical(input, path.join(weird, 'out.mp4'), { creditText: 'twitch.tv/x', fontFile: font });
+  assert.equal(r.fontUsed, true);
+  assert.equal(probe(path.join(weird, 'out.mp4')).height, 1920);
+});
+
+test('escape de 2 níveis do ffmpeg', () => {
+  const { ffEscape } = require('../../src/video');
+  assert.equal(ffEscape('C:/Windows/Fonts/a.ttf'), 'C\\\\:/Windows/Fonts/a.ttf');
+  assert.equal(ffEscape("a'b"), "a\\\\\\'b");
+  assert.equal(ffEscape('[x],y;z'), '\\[x\\]\\,y\\;z');
+});
+
 test('o pior caso (ruído puro) respeita o teto de bitrate, então 60s cabem nos 50 MB do Telegram', { skip: !FFMPEG && 'sem ffmpeg' }, async () => {
   const input = makeVideo(path.join(dir, 'ruido.mp4'), { w: 1280, h: 720, seconds: 10, noise: true });
   const out = path.join(dir, 'ruido-out.mp4');

@@ -22,8 +22,9 @@ if (!SKIP) {
 }
 
 // O "mundo" simulado: Twitch, Telegram e arquivos, num servidor só
-function world({ clips, updates = [{ update_id: 1, message: { chat: { id: 777, type: 'private' }, text: '/start' } }], twitchDown = false }) {
-  const w = { clips, updates, twitchDown, videos: [], messages: [], downloads: 0 };
+function world({ clips, updates = [{ update_id: 1, message: { chat: { id: 777, type: 'private' }, text: '/start' } }], twitchDown = false, fail = {} }) {
+  // fail: { getUpdates: [status, descrição], sendMessage: [...], sendVideo: [...] } simula erros do Telegram
+  const w = { clips, updates, twitchDown, fail, videos: [], messages: [], downloads: 0, revoked: 0 };
   const files = serveDir(media);
   w.handler = async (req, res) => {
     if (req.path.startsWith('/media/')) {
@@ -31,6 +32,10 @@ function world({ clips, updates = [{ update_id: 1, message: { chat: { id: 777, t
       return files(req, res);
     }
     if (req.path === '/oauth2/token') return json(res, 200, { access_token: 't', expires_in: 9999 });
+    if (req.path === '/oauth2/revoke') {
+      w.revoked++;
+      return json(res, 200, {});
+    }
     if (req.path.startsWith('/helix/')) {
       if (w.twitchDown) return json(res, 503, { message: 'Service Unavailable' });
       const p = req.path.slice(7);
@@ -41,6 +46,8 @@ function world({ clips, updates = [{ update_id: 1, message: { chat: { id: 777, t
     const m = req.path.match(/^\/bot([^/]+)\/(\w+)$/);
     if (m) {
       if (m[1] !== TOKEN) return json(res, 401, { ok: false, description: 'Unauthorized' });
+      const injected = w.fail[m[2]];
+      if (injected) return json(res, injected[0], { ok: false, error_code: injected[0], description: injected[1] });
       if (m[2] === 'getMe') return json(res, 200, { ok: true, result: { username: 'meu_clipper_bot' } });
       if (m[2] === 'getUpdates') return json(res, 200, { ok: true, result: w.updates });
       if (m[2] === 'sendMessage') {
@@ -152,7 +159,79 @@ test('rodada completa: escolhe, converte, envia, e não repete na próxima', { s
   assert.equal(r3.code, 0, r3.out);
   assert.equal(w.videos.length, 4);
   assert.match(r3.out, /0 escolhidos/);
+
+  // nada de id do chat nos logs (no GitHub, log de repositório público é público)
+  for (const out of [r1.out, r2.out, r3.out]) assert.doesNotMatch(out, /777/);
+  // o token da Twitch é revogado no fim de cada rodada
+  assert.equal(w.revoked, 3);
   fs.rmSync(work, { recursive: true, force: true });
+});
+
+test('Telegram fora do ar no começo da rodada: não derruba o processo, só pula a rodada', { skip: SKIP }, async (t) => {
+  const { w, env, state } = await setup(t, { clips: [clip('x', 'A')], fail: { getUpdates: [502, 'Bad Gateway'] } });
+  const r = await runClipper(env);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /Não consegui falar com o Telegram agora/);
+  assert.equal(w.downloads, 0);
+  assert.deepEqual(state().clips, {});
+});
+
+test('bot bloqueado na mensagem de boas-vindas: esquece o chat pra descobrir de novo no próximo /start', { skip: SKIP }, async (t) => {
+  const { w, env, state } = await setup(t, { clips: [clip('x', 'A')], fail: { sendMessage: [403, 'Forbidden: bot was blocked by the user'] } });
+  const r = await runClipper(env);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /blocked/);
+  assert.equal(state().telegramChatId, null);
+  assert.equal(state().welcomed, false);
+  assert.equal(w.downloads, 0);
+
+  delete w.fail.sendMessage; // desbloqueou e mandou /start de novo
+  const r2 = await runClipper(env);
+  assert.equal(r2.code, 0, r2.out);
+  assert.equal(state().welcomed, true);
+  assert.equal(w.videos.length, 1);
+});
+
+test('nenhum clipe saiu: avisa no Telegram (uma vez só pro mesmo erro) e guarda o vídeo pronto no backup', { skip: SKIP }, async (t) => {
+  const { w, env, state } = await setup(t, {
+    clips: [clip('a', 'A'), clip('b', 'B', { file: 'b.mp4' })],
+    fail: { sendVideo: [413, 'Request Entity Too Large'] },
+  });
+  await runClipper(env);
+  const alerts = () => w.messages.filter((m) => /problema/.test(m.text));
+  assert.equal(alerts().length, 1);
+  assert.match(alerts()[0].text, /Nenhum dos 2 clipes[\s\S]*Request Entity Too Large/);
+  assert.equal(state().clips.a.fails, 1);
+  // o vídeo foi convertido, só não chegou: fica na pasta pro backup do GitHub
+  const folders = fs.readdirSync(env.OUTPUT_DIR);
+  assert.equal(folders.length, 2);
+  for (const f of folders) assert.ok(fs.existsSync(path.join(env.OUTPUT_DIR, f, 'video.mp4')));
+
+  await runClipper(env); // falha igual de novo: não repete o aviso
+  assert.equal(alerts().length, 1);
+  assert.equal(state().clips.a.fails, 2);
+});
+
+test('download quebrado não deixa pasta pela metade', { skip: SKIP }, async (t) => {
+  const { env } = await setup(t, { clips: [clip('sumiu', 'A', { file: 'nao-existe.mp4' })] });
+  await runClipper(env);
+  assert.deepEqual(fs.readdirSync(env.OUTPUT_DIR), []);
+});
+
+test('dois clipes do mesmo streamer com o mesmo título não se sobrescrevem', { skip: SKIP }, async (t) => {
+  const { w, env } = await setup(t, {
+    clips: [clip('m1', 'A', { title: 'GTA 6 DIA 1', min: 10 }), clip('m2', 'A', { title: 'GTA 6 DIA 1', min: 40, file: 'b.mp4' })],
+    env: { MAX_PER_STREAMER: '0' },
+  });
+  await runClipper(env);
+  assert.equal(w.videos.length, 2);
+  assert.equal(fs.readdirSync(env.OUTPUT_DIR).length, 2);
+});
+
+test('nome de categoria aproximado gera aviso', { skip: SKIP }, async (t) => {
+  const { env } = await setup(t, { clips: [], env: { GAME_NAME: 'GTA 6' } });
+  const r = await runClipper(env);
+  assert.match(r.out, /"GTA 6" não existe com esse nome/);
 });
 
 test('sem /start no bot: não baixa nada, não marca nada e explica o que fazer', { skip: SKIP }, async (t) => {

@@ -26,8 +26,9 @@ function postCaption(clip, login, hashtags) {
 
 function formatViews(n) {
   const v = Number(n) || 0;
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1).replace('.', ',')} mi`;
-  if (v >= 10_000) return `${Math.round(v / 1000)} mil`;
+  // limites ajustados pro arredondamento: 999.700 vira "1,0 mi" e não "1000 mil"
+  if (v >= 999_500) return `${(v / 1_000_000).toFixed(1).replace('.', ',')} mi`;
+  if (v >= 9_950) return `${Math.round(v / 1000)} mil`;
   if (v >= 1000) return `${(v / 1000).toFixed(1).replace('.', ',')} mil`;
   return String(v);
 }

@@ -5,7 +5,7 @@ A cada 10 minutos, pega os clipes de **GTA VI** que estão bombando na Twitch, c
 ## Como escolhe os clipes
 
 - Só lives em português e inglês (`LANGUAGES`), com pelo menos 50 views
-- Prioriza o que está subindo rápido (views por hora), com empurrão pros clipes em PT
+- Prioriza o que está subindo rápido (views por hora), com empurrão pros clipes em PT. Busca as últimas 6h e, separado, a última hora, pra clipe novo não sumir no meio dos milhares do pico
 - Quando várias pessoas clipam o mesmo momento, manda só o melhor
 - No máximo 1 clipe por streamer por rodada e 3 por rodada
 - Nunca repete um clipe já enviado
@@ -21,16 +21,24 @@ Em **Settings → Secrets and variables → Actions**:
 
 Ajustes opcionais ficam na aba **Variables** (mesmo lugar): `LANGUAGES` (`pt`, `pt,en`, `all`), `MIN_VIEWS`, `CLIPS_PER_RUN`, `MAX_PER_STREAMER`, `LOOKBACK_HOURS`, `BOOST_LANG`, `HASHTAGS`, `GAME_NAME`.
 
+Recomendado: crie também a variável `TELEGRAM_CHAT_ID` com o id do seu chat. O id descoberto pelo `/start` fica guardado no cache do GitHub; se o cache se perder depois de 24h do `/start`, o bot não sabe mais pra onde mandar até você mandar `/start` de novo.
+
 ## Usando
 
 - Os vídeos chegam no Telegram. Toque no bloco da legenda pra copiar, salve o vídeo e poste.
-- Rodar agora: aba **Actions → GTA Clipper → Run workflow**.
+- Rodar agora: aba **Actions → GTA Clipper → Run workflow** (pula os testes, vai direto aos clipes).
+- Se nenhum clipe de uma rodada sair, ou a Twitch der erro, chega um aviso no Telegram (no máximo 1 a cada 3h por problema).
 - Pausar: aba **Actions → GTA Clipper → ⋯ → Disable workflow**.
 - Se o Telegram falhar, os vídeos da rodada ficam por 2 dias como *artifact* na página da execução.
 
 ## Rodar no PC (alternativa)
 
-Precisa de Node 20.12+, ffmpeg e yt-dlp (`winget install Gyan.FFmpeg yt-dlp.yt-dlp`).
+Precisa de Node 20.12+, ffmpeg e yt-dlp:
+
+```
+winget install Gyan.FFmpeg
+winget install yt-dlp.yt-dlp
+```
 
 ```
 copy .env.example .env    # e preencha

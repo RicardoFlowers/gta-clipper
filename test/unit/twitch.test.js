@@ -111,6 +111,46 @@ test('credenciais erradas dão erro claro', async (t) => {
   await assert.rejects(tw.findGame('Grand Theft Auto VI'), /TWITCH_CLIENT_ID e TWITCH_CLIENT_SECRET/);
 });
 
+test('busca também a última hora, pra clipe novo não sumir atrás dos 300 mais vistos', async (t) => {
+  const srv = await startServer(async (req, res) => {
+    if (req.path === '/oauth2/token') return json(res, 200, { access_token: 'tok', expires_in: 999999 });
+    if (req.path === '/helix/clips') {
+      const hours = (Date.parse(req.query.get('ended_at')) - Date.parse(req.query.get('started_at'))) / 3600_000;
+      const page = Number(req.query.get('after') || 0);
+      if (hours > 2) return json(res, 200, { data: [{ id: `velho${page}` }], pagination: { cursor: String(page + 1) } });
+      return json(res, 200, { data: [{ id: `novo${page}` }, { id: 'velho0' }], pagination: { cursor: String(page + 1) } });
+    }
+    return json(res, 404, {});
+  });
+  t.after(srv.close);
+  const tw = createTwitch({ clientId: 'cid', clientSecret: 'sec', apiBase: `${srv.url}/helix`, authUrl: `${srv.url}/oauth2/token` });
+  const ids = (await tw.getClips('1', 6)).map((c) => c.id);
+  assert.deepEqual(ids, ['velho0', 'velho1', 'velho2', 'novo0', 'novo1']); // 3 páginas de 6h + 2 da última hora, sem repetir
+  const only6h = (await tw.getClips('1', 6, { recentHours: 0 })).map((c) => c.id);
+  assert.deepEqual(only6h, ['velho0', 'velho1', 'velho2']);
+});
+
+test('revoga o token no fim e não revoga se nem pegou token', async (t) => {
+  const revoked = [];
+  const srv = await startServer(async (req, res) => {
+    if (req.path === '/oauth2/token') return json(res, 200, { access_token: 'tok-x', expires_in: 999999 });
+    if (req.path === '/oauth2/revoke') {
+      revoked.push(new URLSearchParams(req.body.toString()));
+      return json(res, 200, {});
+    }
+    return json(res, 200, { data: [{ id: '1', name: 'Grand Theft Auto VI' }] });
+  });
+  t.after(srv.close);
+  const tw = createTwitch({ clientId: 'cid', clientSecret: 'sec', apiBase: `${srv.url}/helix`, authUrl: `${srv.url}/oauth2/token` });
+  await tw.revoke();
+  assert.equal(revoked.length, 0);
+  await tw.findGame('Grand Theft Auto VI');
+  await tw.revoke();
+  assert.equal(revoked.length, 1);
+  assert.equal(revoked[0].get('token'), 'tok-x');
+  assert.equal(revoked[0].get('client_id'), 'cid');
+});
+
 test('logins dos streamers em lotes de 100', async (t) => {
   const { srv, tw } = await setup();
   t.after(srv.close);
