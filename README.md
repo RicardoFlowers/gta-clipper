@@ -16,7 +16,7 @@ Em **Settings → Secrets and variables → Actions**:
 
 | Secret | De onde vem |
 |---|---|
-| `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` | dev.twitch.tv/console/apps → Register (redirect `http://localhost`, categoria *Application Integration*, *Confidential*) |
+| `TWITCH_CLIENT_SECRET` | dev.twitch.tv/console/apps → app `gta-clipper-flores` → Gerenciar → Novo segredo. O Client ID (público) já está no workflow; pra usar outro app, crie também o secret `TWITCH_CLIENT_ID` |
 | `TELEGRAM_BOT_TOKEN` | @BotFather → `/newbot`. Depois mande `/start` pro seu bot |
 
 Ajustes opcionais ficam na aba **Variables** (mesmo lugar): `LANGUAGES` (`pt`, `pt,en`, `all`), `MIN_VIEWS`, `CLIPS_PER_RUN`, `MAX_PER_STREAMER`, `LOOKBACK_HOURS`, `BOOST_LANG`, `HASHTAGS`, `GAME_NAME`.

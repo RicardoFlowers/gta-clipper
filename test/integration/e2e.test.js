@@ -187,7 +187,11 @@ test('faltando segredos da Twitch: sai sem erro (pra não lotar seu e-mail de fa
   const { env } = await setup(t, { clips: [], env: { TWITCH_CLIENT_ID: '', TWITCH_CLIENT_SECRET: '' } });
   const r = await runClipper(env);
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /TWITCH_CLIENT_ID/);
+  assert.match(r.out, /TWITCH_CLIENT_ID e TWITCH_CLIENT_SECRET/);
+
+  const onlySecret = await runClipper({ ...env, TWITCH_CLIENT_ID: 'abc' });
+  assert.equal(onlySecret.code, 0, onlySecret.out);
+  assert.match(onlySecret.out, /Falta TWITCH_CLIENT_SECRET /);
 });
 
 test('clipe com download quebrado: tenta mais uma vez na próxima rodada e depois desiste', { skip: SKIP }, async (t) => {

@@ -184,8 +184,9 @@ async function runOnce(ctx) {
 async function main() {
   const once = process.argv.includes('--once');
 
-  if (!cfg.clientId || !cfg.clientSecret) {
-    annotate('warning', 'Configuração', 'Faltam TWITCH_CLIENT_ID e TWITCH_CLIENT_SECRET (no GitHub: Settings > Secrets and variables > Actions)');
+  const missing = [!cfg.clientId && 'TWITCH_CLIENT_ID', !cfg.clientSecret && 'TWITCH_CLIENT_SECRET'].filter(Boolean);
+  if (missing.length) {
+    annotate('warning', 'Configuração', `Falta ${missing.join(' e ')} (no GitHub: Settings > Secrets and variables > Actions)`);
     process.exit(once ? 0 : 1);
   }
 
