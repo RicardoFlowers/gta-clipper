@@ -21,7 +21,7 @@ Em **Settings → Secrets and variables → Actions**:
 
 Ajustes opcionais ficam na aba **Variables** (mesmo lugar): `LANGUAGES` (`pt`, `pt,en`, `all`), `MIN_VIEWS`, `CLIPS_PER_RUN`, `MAX_PER_STREAMER`, `LOOKBACK_HOURS`, `BOOST_LANG`, `HASHTAGS`, `GAME_NAME`.
 
-Recomendado: crie também a variável `TELEGRAM_CHAT_ID` com o id do seu chat. O id descoberto pelo `/start` fica guardado no cache do GitHub; se o cache se perder depois de 24h do `/start`, o bot não sabe mais pra onde mandar até você mandar `/start` de novo.
+Recomendado: crie também o **secret** `TELEGRAM_CHAT_ID` com o id do seu chat (secret, não variável: variáveis aparecem em texto puro no log público). Sem ele, o id descoberto pelo `/start` fica só no cache do GitHub; se o cache se perder, o bot só volta a mandar depois de um novo `/start`.
 
 ## Usando
 
