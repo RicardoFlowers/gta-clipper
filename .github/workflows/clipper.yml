@@ -1,0 +1,86 @@
+name: GTA Clipper
+
+on:
+  schedule:
+    - cron: '*/10 * * * *' # a cada 10 min (o GitHub às vezes atrasa alguns minutos)
+  workflow_dispatch: # botão "Run workflow" na aba Actions
+  push:
+    branches: [main]
+    paths-ignore: ['**.md']
+
+# Nunca duas rodadas ao mesmo tempo (evita mandar o mesmo clipe duas vezes)
+concurrency:
+  group: clipper
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  clip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar ffmpeg e yt-dlp
+        run: |
+          if ! command -v ffmpeg >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends ffmpeg fonts-dejavu-core >/dev/null
+          fi
+          sudo curl -fsSL --retry 3 https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux -o /usr/local/bin/yt-dlp
+          sudo chmod a+rx /usr/local/bin/yt-dlp
+          ffmpeg -hide_banner -version | head -1
+          echo "yt-dlp $(yt-dlp --version)"
+
+      - name: Testes
+        if: github.event_name != 'schedule'
+        run: npm test
+
+      - name: Restaurar estado (clipes já enviados)
+        uses: actions/cache/restore@v4
+        with:
+          path: state.json
+          key: clipper-state-${{ github.run_id }}
+          restore-keys: clipper-state-
+
+      - name: Buscar, converter e enviar clipes
+        env:
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Ajustes opcionais: Settings > Secrets and variables > Actions > aba Variables
+          GAME_NAME: ${{ vars.GAME_NAME }}
+          LANGUAGES: ${{ vars.LANGUAGES }}
+          BOOST_LANG: ${{ vars.BOOST_LANG }}
+          BOOST: ${{ vars.BOOST }}
+          MIN_VIEWS: ${{ vars.MIN_VIEWS }}
+          CLIPS_PER_RUN: ${{ vars.CLIPS_PER_RUN }}
+          MAX_PER_STREAMER: ${{ vars.MAX_PER_STREAMER }}
+          LOOKBACK_HOURS: ${{ vars.LOOKBACK_HOURS }}
+          MAX_DURATION: ${{ vars.MAX_DURATION }}
+          HASHTAGS: ${{ vars.HASHTAGS }}
+          FONT_FILE: /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+        run: node index.js --once
+
+      - name: Salvar estado
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: state.json
+          key: clipper-state-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Guardar vídeos (backup, 2 dias)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipes-${{ github.run_id }}-${{ github.run_attempt }}
+          path: output/
+          retention-days: 2
+          if-no-files-found: ignore

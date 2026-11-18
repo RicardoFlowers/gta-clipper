@@ -1,0 +1,6 @@
+node_modules/
+.env
+output/
+tmp/
+state.json
+state.json.tmp

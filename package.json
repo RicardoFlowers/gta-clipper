@@ -1,0 +1,16 @@
+{
+  "name": "gta-clipper",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Pega os clipes de GTA VI que estão bombando na Twitch, converte pra vertical e manda pro Telegram com a legenda pronta (TikTok, Shorts, Reels)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "once": "node index.js --once",
+    "test": "node --test --test-concurrency=1 \"test/**/*.test.js\"",
+    "test:unit": "node --test \"test/unit/*.test.js\""
+  },
+  "engines": {
+    "node": ">=20.12"
+  }
+}
